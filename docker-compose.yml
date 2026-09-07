@@ -1,0 +1,49 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: tuipod
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-tuipod}
+      POSTGRES_DB: tuipod
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tuipod"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8080}:8080"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://tuipod:${DB_PASSWORD:-tuipod}@db:5432/tuipod
+      PORT: "8080"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # Podcast feed refresher. Always keep this at 1 replica — the api service
+  # can be scaled to N instances (docker compose up --scale api=N), the
+  # worker cannot without duplicating refresh cycles/push notifications.
+  worker:
+    build: .
+    command: ["./tuipod-worker"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://tuipod:${DB_PASSWORD:-tuipod}@db:5432/tuipod
+    depends_on:
+      db:
+        condition: service_healthy
+      api:
+        condition: service_started
+
+volumes:
+  pgdata:

@@ -1,0 +1,1377 @@
+openapi: 3.0.3
+info:
+  title: TUIPOD API
+  description: Self-hosted podcast backend for TUI and mobile clients.
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:8080/v1
+    description: Local development
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: Register a new account
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+      responses:
+        '201':
+          description: Account created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: Login with email and password
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthRequest'
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: Exchange a refresh token for a new access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: New tokens issued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /me:
+    get:
+      tags: [User]
+      summary: Get current user profile
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    delete:
+      tags: [User]
+      summary: Delete account and all associated data
+      responses:
+        '204':
+          description: Account deleted
+
+  /me/password:
+    put:
+      tags: [User]
+      summary: Change password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [current_password, new_password]
+              properties:
+                current_password:
+                  type: string
+                new_password:
+                  type: string
+      responses:
+        '204':
+          description: Password changed
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /me/feed:
+    get:
+      tags: [User]
+      summary: Latest 100 episodes from all subscriptions with playback progress
+      description: Requires plan basic or pro.
+      responses:
+        '200':
+          description: Episode feed
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FeedItem'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+
+  /me/continue-listening:
+    get:
+      tags: [User]
+      summary: In-progress episodes, most recently listened first (max 50)
+      description: Requires plan basic or pro.
+      responses:
+        '200':
+          description: In-progress episodes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ContinueItem'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+
+  /me/history:
+    get:
+      tags: [User]
+      summary: Completed episodes, most recently finished first (max 100)
+      description: Requires plan basic or pro.
+      responses:
+        '200':
+          description: Completed episodes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/HistoryItem'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+
+  /me/stats:
+    get:
+      tags: [User]
+      summary: Listening statistics
+      description: Pro-only.
+      responses:
+        '200':
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResponse'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+
+  /me/queue:
+    get:
+      tags: [Queue]
+      summary: Get play queue in order
+      description: Requires plan basic or pro.
+      responses:
+        '200':
+          description: Queue items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/QueueItem'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+    post:
+      tags: [Queue]
+      summary: Add episode to end of queue
+      description: Requires plan basic or pro.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [episode_id]
+              properties:
+                episode_id:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Added to queue
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /me/queue/reorder:
+    put:
+      tags: [Queue]
+      summary: Set new queue order from a list of item IDs
+      description: Requires plan basic or pro.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ids]
+              properties:
+                ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+      responses:
+        '204':
+          description: Reordered
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+
+  /me/queue/{id}:
+    delete:
+      tags: [Queue]
+      summary: Remove item from queue
+      description: Requires plan basic or pro.
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '204':
+          description: Removed
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /podcasts/search:
+    get:
+      tags: [Podcasts]
+      summary: Search podcasts via iTunes API
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PodcastSearchResult'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /podcasts/fetch:
+    post:
+      tags: [Podcasts]
+      summary: Import a podcast by RSS URL
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [url]
+              properties:
+                url:
+                  type: string
+                  format: uri
+      responses:
+        '201':
+          description: Podcast imported (new)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PodcastResponse'
+        '200':
+          description: Podcast updated (already existed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PodcastResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /podcasts/{id}:
+    get:
+      tags: [Podcasts]
+      summary: Get podcast by ID
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200':
+          description: Podcast
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PodcastResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /podcasts/{id}/refresh:
+    post:
+      tags: [Podcasts]
+      summary: Re-fetch RSS and import new episodes
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '204':
+          description: Refreshed
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /podcasts/{id}/episodes:
+    get:
+      tags: [Podcasts]
+      summary: List episodes for a podcast
+      parameters:
+        - $ref: '#/components/parameters/ID'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        '200':
+          description: Episodes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EpisodeResponse'
+
+  /subscriptions:
+    get:
+      tags: [Subscriptions]
+      summary: List subscribed podcasts
+      description: Requires plan basic or pro — subscriptions only exist server-side once synced.
+      responses:
+        '200':
+          description: Subscriptions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SubscriptionResponse'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+    post:
+      tags: [Subscriptions]
+      summary: Subscribe to a podcast
+      description: Requires plan basic or pro. No subscription-count limit.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [podcast_id]
+              properties:
+                podcast_id:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Subscribed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /subscriptions/{id}:
+    delete:
+      tags: [Subscriptions]
+      summary: Unsubscribe
+      description: Requires plan basic or pro.
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '204':
+          description: Unsubscribed
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /subscriptions/import:
+    post:
+      tags: [Subscriptions]
+      summary: Import subscriptions from an OPML file
+      description: Pro-only.
+      requestBody:
+        required: true
+        content:
+          application/xml:
+            schema:
+              type: string
+              format: binary
+      responses:
+        '200':
+          description: Import result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  imported:
+                    type: integer
+                  skipped:
+                    type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /subscriptions/export:
+    get:
+      tags: [Subscriptions]
+      summary: Export subscriptions as OPML file
+      description: Always free — no lock-in on your own data, no plan check.
+      responses:
+        '200':
+          description: OPML file
+          content:
+            text/x-opml:
+              schema:
+                type: string
+                format: binary
+
+  /me/favorites:
+    get:
+      tags: [Favorites]
+      summary: List favorited podcasts
+      description: Requires plan basic or pro.
+      responses:
+        '200':
+          description: Favorites
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FavoriteResponse'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+    post:
+      tags: [Favorites]
+      summary: Favorite a podcast
+      description: Requires plan basic or pro.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [podcast_id]
+              properties:
+                podcast_id:
+                  type: string
+                  format: uuid
+      responses:
+        '201':
+          description: Favorited
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id:
+                    type: string
+                    format: uuid
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /me/favorites/{id}:
+    delete:
+      tags: [Favorites]
+      summary: Remove a favorite
+      description: Requires plan basic or pro.
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '204':
+          description: Removed
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /episodes/search:
+    get:
+      tags: [Episodes]
+      summary: Search episode titles across subscribed podcasts
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Matching episodes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EpisodeSearchResult'
+
+  /episodes/{id}:
+    get:
+      tags: [Episodes]
+      summary: Get episode by ID
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200':
+          description: Episode
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EpisodeResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /episodes/{id}/progress:
+    get:
+      tags: [Episodes]
+      summary: Get playback progress for current user (returns 0 if never played)
+      description: Requires plan basic or pro.
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200':
+          description: Progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProgressResponse'
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+    put:
+      tags: [Episodes]
+      summary: Update playback progress
+      description: Requires plan basic or pro. This is the "pause on phone, resume in TUI" feature.
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProgressRequest'
+      responses:
+        '204':
+          description: Progress saved
+        '402':
+          $ref: '#/components/responses/PaymentRequired'
+
+  # ── Auth v2 ────────────────────────────────────────────────────────────────
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Revoke a refresh token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshTokenRequest'
+      responses:
+        '204':
+          description: Token revoked (also returned for invalid tokens)
+
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: Request a password-reset email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email:
+                  type: string
+                  format: email
+      responses:
+        '204':
+          description: Email sent (always, to avoid enumeration)
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: Reset password using a token from the reset email
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, new_password]
+              properties:
+                token:
+                  type: string
+                  format: uuid
+                new_password:
+                  type: string
+                  minLength: 8
+      responses:
+        '204':
+          description: Password reset — all refresh tokens revoked
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /auth/verify-email:
+    get:
+      tags: [Auth]
+      summary: Verify email address using token from verification email
+      security: []
+      parameters:
+        - name: token
+          in: query
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '204':
+          description: Email verified
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # ── Billing ────────────────────────────────────────────────────────────────
+
+  /billing/status:
+    get:
+      tags: [Billing]
+      summary: Get current plan and billing status
+      responses:
+        '200':
+          description: Billing status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BillingStatus'
+
+  /billing/checkout:
+    post:
+      tags: [Billing]
+      summary: Create a Stripe Checkout session to upgrade plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan]
+              properties:
+                plan:
+                  type: string
+                  enum: [basic, pro]
+      responses:
+        '200':
+          description: Checkout URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    format: uri
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '501':
+          description: Billing not configured on this server
+
+  /billing/portal:
+    post:
+      tags: [Billing]
+      summary: Create a Stripe Customer Portal session to manage subscription
+      responses:
+        '200':
+          description: Portal URL
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                    format: uri
+        '400':
+          description: No active subscription
+        '501':
+          description: Billing not configured on this server
+
+  # ── Admin ──────────────────────────────────────────────────────────────────
+
+  /admin/stats:
+    get:
+      tags: [Admin]
+      summary: Platform-wide statistics
+      responses:
+        '200':
+          description: Stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformStats'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: List all users (max 500)
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AdminUser'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/users/{id}:
+    get:
+      tags: [Admin]
+      summary: Get user by ID
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '200':
+          description: User detail
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminUser'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+    delete:
+      tags: [Admin]
+      summary: Delete a user and all their data
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '204':
+          description: Deleted
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/users/{id}/plan:
+    put:
+      tags: [Admin]
+      summary: Override a user's plan
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan]
+              properties:
+                plan:
+                  type: string
+                  enum: [free, basic, pro]
+      responses:
+        '204':
+          description: Plan updated
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  /admin/users/{id}/suspend:
+    post:
+      tags: [Admin]
+      summary: Suspend a user (revokes all refresh tokens)
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '204':
+          description: Suspended
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /admin/users/{id}/unsuspend:
+    post:
+      tags: [Admin]
+      summary: Lift a suspension
+      parameters:
+        - $ref: '#/components/parameters/ID'
+      responses:
+        '204':
+          description: Unsuspended
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # ── Webhook (no auth) ──────────────────────────────────────────────────────
+
+  /webhooks/stripe:
+    post:
+      tags: [Webhooks]
+      summary: Stripe event receiver (verify via Stripe-Signature header)
+      security: []
+      servers:
+        - url: http://localhost:8080
+          description: Root — not under /v1
+      responses:
+        '204':
+          description: Event processed
+        '400':
+          description: Invalid signature or payload
+
+  # ── Push Notifications ─────────────────────────────────────────────────────
+
+  /me/device-tokens:
+    post:
+      tags: [Push]
+      summary: Register a device token for push notifications
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeviceTokenRequest'
+      responses:
+        '204':
+          description: Token registered
+
+  /me/device-tokens/{token}:
+    delete:
+      tags: [Push]
+      summary: Unregister a device token
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Token removed
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    ID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Forbidden
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    PaymentRequired:
+      description: Requires a paid plan (basic or pro) — this account is on the free plan
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Conflict (duplicate)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    AuthRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
+
+    AuthResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        access_token:
+          type: string
+          description: JWT, valid for 15 minutes
+        refresh_token:
+          type: string
+          description: JWT, valid for 30 days
+
+    UserResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        created_at:
+          type: string
+          format: date-time
+
+    PodcastResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        rss_url:
+          type: string
+          format: uri
+        title:
+          type: string
+        author:
+          type: string
+        image_url:
+          type: string
+          format: uri
+        description:
+          type: string
+
+    PodcastSearchResult:
+      type: object
+      properties:
+        feed_url:
+          type: string
+          format: uri
+        title:
+          type: string
+        author:
+          type: string
+        image_url:
+          type: string
+          format: uri
+        episode_count:
+          type: integer
+
+    EpisodeResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        podcast_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        audio_url:
+          type: string
+          format: uri
+        duration:
+          type: integer
+          nullable: true
+          description: Duration in seconds
+        description:
+          type: string
+        pub_date:
+          type: string
+          nullable: true
+          format: date-time
+
+    EpisodeSearchResult:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        podcast_id:
+          type: string
+          format: uuid
+        podcast_title:
+          type: string
+        title:
+          type: string
+        audio_url:
+          type: string
+          format: uri
+        duration:
+          type: integer
+          nullable: true
+        pub_date:
+          type: string
+          nullable: true
+          format: date-time
+
+    SubscriptionResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        podcast_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        image_url:
+          type: string
+
+    FavoriteResponse:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        podcast_id:
+          type: string
+          format: uuid
+        title:
+          type: string
+        image_url:
+          type: string
+
+    FeedItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        podcast_id:
+          type: string
+          format: uuid
+        podcast_title:
+          type: string
+        podcast_image:
+          type: string
+        title:
+          type: string
+        audio_url:
+          type: string
+          format: uri
+        duration:
+          type: integer
+          nullable: true
+        description:
+          type: string
+        pub_date:
+          type: string
+          nullable: true
+          format: date-time
+        position_seconds:
+          type: integer
+        completed:
+          type: boolean
+
+    ContinueItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        podcast_id:
+          type: string
+          format: uuid
+        podcast_title:
+          type: string
+        podcast_image:
+          type: string
+        title:
+          type: string
+        audio_url:
+          type: string
+          format: uri
+        duration:
+          type: integer
+          nullable: true
+        position_seconds:
+          type: integer
+        last_listened:
+          type: string
+          format: date-time
+
+    HistoryItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        podcast_id:
+          type: string
+          format: uuid
+        podcast_title:
+          type: string
+        podcast_image:
+          type: string
+        title:
+          type: string
+        audio_url:
+          type: string
+          format: uri
+        duration:
+          type: integer
+          nullable: true
+        completed_at:
+          type: string
+          format: date-time
+
+    QueueItem:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        position:
+          type: integer
+        episode_id:
+          type: string
+          format: uuid
+        podcast_id:
+          type: string
+          format: uuid
+        podcast_title:
+          type: string
+        podcast_image:
+          type: string
+        title:
+          type: string
+        audio_url:
+          type: string
+          format: uri
+        duration:
+          type: integer
+          nullable: true
+        added_at:
+          type: string
+          format: date-time
+
+    StatsResponse:
+      type: object
+      properties:
+        completed_episodes:
+          type: integer
+        in_progress_episodes:
+          type: integer
+        total_listened_seconds:
+          type: integer
+        subscriptions:
+          type: integer
+
+    ProgressRequest:
+      type: object
+      required: [position_seconds]
+      properties:
+        position_seconds:
+          type: integer
+          minimum: 0
+        completed:
+          type: boolean
+          default: false
+
+    ProgressResponse:
+      type: object
+      properties:
+        episode_id:
+          type: string
+          format: uuid
+        position_seconds:
+          type: integer
+        completed:
+          type: boolean
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+
+    RefreshTokenRequest:
+      type: object
+      required: [refresh_token]
+      properties:
+        refresh_token:
+          type: string
+
+    BillingStatus:
+      type: object
+      properties:
+        plan:
+          type: string
+          enum: [free, basic, pro]
+        stripe_customer_id:
+          type: string
+          nullable: true
+
+    PlatformStats:
+      type: object
+      properties:
+        total_users:
+          type: integer
+        total_podcasts:
+          type: integer
+        total_subscriptions:
+          type: integer
+        free_users:
+          type: integer
+        basic_users:
+          type: integer
+        pro_users:
+          type: integer
+
+    AdminUser:
+      type: object
+      properties:
+        id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        plan:
+          type: string
+          enum: [free, basic, pro]
+        email_verified:
+          type: boolean
+        is_admin:
+          type: boolean
+        suspended_at:
+          type: string
+          format: date-time
+          nullable: true
+        stripe_customer_id:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        subscriptions:
+          type: integer
+
+    DeviceTokenRequest:
+      type: object
+      required: [token, platform]
+      properties:
+        token:
+          type: string
+          description: FCM registration token
+        platform:
+          type: string
+          enum: [android, ios]

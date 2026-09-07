@@ -1,0 +1,48 @@
+# Fly.io app config — two process groups sharing the same image (see Dockerfile):
+#   app    = HTTP API (cmd/server), scalable to N machines, always-on (no scale-to-zero)
+#   worker = podcast feed refresher (cmd/worker) — keep at exactly 1 machine, never scale
+# DB is external (Neon), not run on Fly — see DEPLOYMENT.md "Fly.io + Neon" section.
+app = "tuipod-api"
+primary_region = "fra"
+
+[build]
+
+[env]
+PORT = "8080"
+
+[processes]
+app = "./tuipod"
+worker = "./tuipod-worker"
+
+[http_service]
+processes = ["app"]
+internal_port = 8080
+force_https = true
+auto_stop_machines = false
+auto_start_machines = true
+min_machines_running = 1
+
+[http_service.concurrency]
+type = "requests"
+soft_limit = 200
+hard_limit = 250
+
+[[http_service.checks]]
+grace_period = "10s"
+interval = "30s"
+method = "GET"
+path = "/health"
+timeout = "5s"
+
+[[vm]]
+size = "shared-cpu-1x"
+memory = "512mb"
+processes = ["app"]
+
+[[vm]]
+size = "shared-cpu-1x"
+memory = "256mb"
+processes = ["worker"]
+
+[deploy]
+strategy = "rolling"
