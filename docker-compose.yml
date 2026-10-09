@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: tuipod
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-tuipod}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env}
       POSTGRES_DB: tuipod
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -22,7 +22,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://tuipod:${DB_PASSWORD:-tuipod}@db:5432/tuipod
+      DATABASE_URL: postgres://tuipod:${DB_PASSWORD:?Set DB_PASSWORD in .env}@db:5432/tuipod
       PORT: "8080"
     depends_on:
       db:
@@ -38,7 +38,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://tuipod:${DB_PASSWORD:-tuipod}@db:5432/tuipod
+      DATABASE_URL: postgres://tuipod:${DB_PASSWORD:?Set DB_PASSWORD in .env}@db:5432/tuipod
     depends_on:
       db:
         condition: service_healthy
