@@ -69,6 +69,19 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		httperr.Write(w, http.StatusBadRequest, "email and password required")
 		return
 	}
+	// Server-side floor, not just the clients' UI-level `minLength=8` —
+	// direct API calls bypass client-side validation entirely. 72 is
+	// bcrypt's own input cap (GenerateFromPassword silently truncates
+	// anything longer, which would otherwise mean e.g. "password"+50 random
+	// chars and "password"+51 different random chars hash identically).
+	if len(req.Password) < 8 {
+		httperr.Write(w, http.StatusBadRequest, "password must be at least 8 characters")
+		return
+	}
+	if len(req.Password) > 72 {
+		httperr.Write(w, http.StatusBadRequest, "password must be at most 72 characters")
+		return
+	}
 
 	hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), 12)
 	if err != nil {
@@ -240,10 +253,10 @@ func (h *Handler) ForgotPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appURL := os.Getenv("APP_URL")
+	webURL := os.Getenv("WEB_URL")
 	body := fmt.Sprintf(
-		"Reset your TUIPOD password:\n\n%s/v1/auth/reset-password?token=%s\n\nThis link expires in 1 hour.",
-		appURL, token,
+		"Reset your TUIPOD password:\n\n%s/reset-password?token=%s\n\nThis link expires in 1 hour.",
+		webURL, token,
 	)
 	go h.mailer.Send(email, "Reset your TUIPOD password", body)
 
@@ -261,6 +274,10 @@ func (h *Handler) ResetPassword(w http.ResponseWriter, r *http.Request) {
 	var req resetPasswordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Token == "" || req.NewPassword == "" {
 		httperr.Write(w, http.StatusBadRequest, "token and new_password required")
+		return
+	}
+	if len(req.NewPassword) < 8 || len(req.NewPassword) > 72 {
+		httperr.Write(w, http.StatusBadRequest, "password must be 8-72 characters")
 		return
 	}
 
@@ -328,10 +345,10 @@ func (h *Handler) sendVerificationEmail(ctx context.Context, userID, email strin
 		return
 	}
 
-	appURL := os.Getenv("APP_URL")
+	webURL := os.Getenv("WEB_URL")
 	body := fmt.Sprintf(
-		"Welcome to TUIPOD! Verify your email:\n\n%s/v1/auth/verify-email?token=%s\n\nThis link expires in 24 hours.",
-		appURL, token,
+		"Welcome to TUIPOD! Verify your email:\n\n%s/verify-email?token=%s\n\nThis link expires in 24 hours.",
+		webURL, token,
 	)
 	h.mailer.Send(email, "Verify your TUIPOD email", body)
 }

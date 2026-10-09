@@ -22,6 +22,10 @@ type feedItem struct {
 	PubDate      *time.Time `json:"pub_date"`
 	PositionSecs int        `json:"position_seconds"`
 	Completed    bool       `json:"completed"`
+	// TranscriptURL/TranscriptType — see podcast.episodeResponse's doc
+	// comment on the same fields.
+	TranscriptURL  string `json:"transcript_url,omitempty"`
+	TranscriptType string `json:"transcript_type,omitempty"`
 }
 
 type Handler struct {
@@ -46,7 +50,8 @@ func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(r.Context(), `
 		SELECT e.id, e.podcast_id, p.title, COALESCE(p.image_url,''),
 		       e.title, e.audio_url, e.duration, COALESCE(e.description,''), e.pub_date,
-		       COALESCE(pr.position_seconds, 0), COALESCE(pr.completed, false)
+		       COALESCE(pr.position_seconds, 0), COALESCE(pr.completed, false),
+		       COALESCE(e.transcript_url,''), COALESCE(e.transcript_type,'')
 		FROM episodes e
 		JOIN podcasts p ON p.id = e.podcast_id
 		JOIN subscriptions s ON s.podcast_id = e.podcast_id AND s.user_id = $1
@@ -68,6 +73,7 @@ func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 			&f.ID, &f.PodcastID, &f.PodcastTitle, &f.PodcastImage,
 			&f.Title, &f.AudioURL, &f.Duration, &f.Description, &f.PubDate,
 			&f.PositionSecs, &f.Completed,
+			&f.TranscriptURL, &f.TranscriptType,
 		); err != nil {
 			continue
 		}
@@ -83,15 +89,17 @@ func (h *Handler) Feed(w http.ResponseWriter, r *http.Request) {
 }
 
 type continueItem struct {
-	ID           string    `json:"id"`
-	PodcastID    string    `json:"podcast_id"`
-	PodcastTitle string    `json:"podcast_title"`
-	PodcastImage string    `json:"podcast_image"`
-	Title        string    `json:"title"`
-	AudioURL     string    `json:"audio_url"`
-	Duration     *int      `json:"duration"`
-	PositionSecs int       `json:"position_seconds"`
-	LastListened time.Time `json:"last_listened"`
+	ID             string    `json:"id"`
+	PodcastID      string    `json:"podcast_id"`
+	PodcastTitle   string    `json:"podcast_title"`
+	PodcastImage   string    `json:"podcast_image"`
+	Title          string    `json:"title"`
+	AudioURL       string    `json:"audio_url"`
+	Duration       *int      `json:"duration"`
+	PositionSecs   int       `json:"position_seconds"`
+	LastListened   time.Time `json:"last_listened"`
+	TranscriptURL  string    `json:"transcript_url,omitempty"`
+	TranscriptType string    `json:"transcript_type,omitempty"`
 }
 
 // ContinueListening returns in-progress episodes, most recently listened first.
@@ -101,7 +109,8 @@ func (h *Handler) ContinueListening(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.db.Query(r.Context(), `
 		SELECT e.id, e.podcast_id, p.title, COALESCE(p.image_url,''),
 		       e.title, e.audio_url, e.duration,
-		       pr.position_seconds, pr.updated_at
+		       pr.position_seconds, pr.updated_at,
+		       COALESCE(e.transcript_url,''), COALESCE(e.transcript_type,'')
 		FROM progress pr
 		JOIN episodes e ON e.id = pr.episode_id
 		JOIN podcasts p ON p.id = e.podcast_id
@@ -125,6 +134,7 @@ func (h *Handler) ContinueListening(w http.ResponseWriter, r *http.Request) {
 			&c.ID, &c.PodcastID, &c.PodcastTitle, &c.PodcastImage,
 			&c.Title, &c.AudioURL, &c.Duration,
 			&c.PositionSecs, &c.LastListened,
+			&c.TranscriptURL, &c.TranscriptType,
 		); err != nil {
 			continue
 		}
@@ -140,14 +150,16 @@ func (h *Handler) ContinueListening(w http.ResponseWriter, r *http.Request) {
 }
 
 type historyItem struct {
-	ID           string    `json:"id"`
-	PodcastID    string    `json:"podcast_id"`
-	PodcastTitle string    `json:"podcast_title"`
-	PodcastImage string    `json:"podcast_image"`
-	Title        string    `json:"title"`
-	AudioURL     string    `json:"audio_url"`
-	Duration     *int      `json:"duration"`
-	CompletedAt  time.Time `json:"completed_at"`
+	ID             string    `json:"id"`
+	PodcastID      string    `json:"podcast_id"`
+	PodcastTitle   string    `json:"podcast_title"`
+	PodcastImage   string    `json:"podcast_image"`
+	Title          string    `json:"title"`
+	AudioURL       string    `json:"audio_url"`
+	Duration       *int      `json:"duration"`
+	CompletedAt    time.Time `json:"completed_at"`
+	TranscriptURL  string    `json:"transcript_url,omitempty"`
+	TranscriptType string    `json:"transcript_type,omitempty"`
 }
 
 // History returns completed episodes, most recently completed first.
@@ -156,7 +168,8 @@ func (h *Handler) History(w http.ResponseWriter, r *http.Request) {
 
 	rows, err := h.db.Query(r.Context(), `
 		SELECT e.id, e.podcast_id, p.title, COALESCE(p.image_url,''),
-		       e.title, e.audio_url, e.duration, pr.updated_at
+		       e.title, e.audio_url, e.duration, pr.updated_at,
+		       COALESCE(e.transcript_url,''), COALESCE(e.transcript_type,'')
 		FROM progress pr
 		JOIN episodes e ON e.id = pr.episode_id
 		JOIN podcasts p ON p.id = e.podcast_id
@@ -178,6 +191,7 @@ func (h *Handler) History(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(
 			&h.ID, &h.PodcastID, &h.PodcastTitle, &h.PodcastImage,
 			&h.Title, &h.AudioURL, &h.Duration, &h.CompletedAt,
+			&h.TranscriptURL, &h.TranscriptType,
 		); err != nil {
 			continue
 		}
@@ -242,6 +256,10 @@ func (h *Handler) ChangePassword(w http.ResponseWriter, r *http.Request) {
 	var req passwordRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.NewPassword == "" {
 		http.Error(w, "current_password and new_password required", http.StatusBadRequest)
+		return
+	}
+	if len(req.NewPassword) < 8 || len(req.NewPassword) > 72 {
+		http.Error(w, "password must be 8-72 characters", http.StatusBadRequest)
 		return
 	}
 

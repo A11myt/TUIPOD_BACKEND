@@ -11,6 +11,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/A11myt/tuipod/internal/auth"
 	"github.com/A11myt/tuipod/internal/db"
 	"github.com/A11myt/tuipod/internal/podcast"
 	"github.com/A11myt/tuipod/internal/push"
@@ -50,6 +51,11 @@ func main() {
 		slog.Info("worker running", "refresh_interval_hours", refreshHours)
 		podcast.NewRefresher(pool, notifier).Run(ctx, time.Duration(refreshHours)*time.Hour)
 	}()
+
+	// Expired refresh/password-reset/email-verification tokens are never
+	// deleted anywhere else — see auth.RunTokenCleanup's doc comment. Once
+	// a day is plenty; this isn't time-sensitive the way feed refreshing is.
+	go auth.RunTokenCleanup(ctx, pool, 24*time.Hour)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/A11myt/tuipod/internal/auth"
@@ -57,11 +58,39 @@ func TestRegister_MissingFields(t *testing.T) {
 	}
 }
 
+// TestRegister_PasswordTooShort is a regression test for a gap where Register
+// only checked for a non-empty password — the 8-char minimum existed only as
+// client-side `minLength` on each frontend's form, trivially bypassed by
+// calling the API directly.
+func TestRegister_PasswordTooShort(t *testing.T) {
+	code, resp := doRegister(t, setup(t), "shortpw@example.com", "short1")
+	if code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", code)
+	}
+	if resp["error"] != "password must be at least 8 characters" {
+		t.Errorf("unexpected error message: %v", resp["error"])
+	}
+}
+
+// TestRegister_PasswordTooLong guards bcrypt's own 72-byte input cap —
+// GenerateFromPassword silently truncates anything longer, so without this
+// check two different passwords beyond 72 bytes that share the same first 72
+// bytes would hash identically.
+func TestRegister_PasswordTooLong(t *testing.T) {
+	code, resp := doRegister(t, setup(t), "longpw@example.com", strings.Repeat("a", 73))
+	if code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", code)
+	}
+	if resp["error"] != "password must be at most 72 characters" {
+		t.Errorf("unexpected error message: %v", resp["error"])
+	}
+}
+
 func TestLogin_Success(t *testing.T) {
 	h := setup(t)
-	doRegister(t, h, "login@example.com", "secret")
+	doRegister(t, h, "login@example.com", "secretpw")
 
-	body, _ := json.Marshal(map[string]string{"email": "login@example.com", "password": "secret"})
+	body, _ := json.Marshal(map[string]string{"email": "login@example.com", "password": "secretpw"})
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
 	rr := httptest.NewRecorder()
 	h.Login(rr, req)
@@ -73,7 +102,7 @@ func TestLogin_Success(t *testing.T) {
 
 func TestLogin_WrongPassword(t *testing.T) {
 	h := setup(t)
-	doRegister(t, h, "wp@example.com", "correct")
+	doRegister(t, h, "wp@example.com", "correctpw")
 
 	body, _ := json.Marshal(map[string]string{"email": "wp@example.com", "password": "wrong"})
 	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
@@ -172,6 +201,28 @@ func TestResetPassword_InvalidToken(t *testing.T) {
 	h.ResetPassword(rr, req)
 	if rr.Code != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+}
+
+// TestResetPassword_PasswordTooShort checks the length validation runs
+// *before* the token lookup (an invalid token alone would also 400, which
+// would make this test meaningless without asserting the specific message).
+func TestResetPassword_PasswordTooShort(t *testing.T) {
+	h := setup(t)
+	body, _ := json.Marshal(map[string]string{
+		"token":        "00000000-0000-0000-0000-000000000000",
+		"new_password": "short1",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	h.ResetPassword(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d", rr.Code)
+	}
+	var resp map[string]any
+	json.NewDecoder(rr.Body).Decode(&resp)
+	if resp["error"] != "password must be 8-72 characters" {
+		t.Errorf("expected the length-validation error (checked before the token lookup), got %v", resp["error"])
 	}
 }
 

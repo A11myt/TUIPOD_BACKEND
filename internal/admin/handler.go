@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/A11myt/tuipod/internal/httperr"
@@ -47,6 +48,54 @@ func (h *Handler) Stats(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(s)
+}
+
+type growthPoint struct {
+	Date    string `json:"date"`
+	Signups int64  `json:"signups"`
+}
+
+// GrowthStats returns daily signup counts for the last N days (query param
+// "days", default 30, capped at 365) — one point per calendar day including
+// days with zero signups, oldest first. Built for MARKETING.md's launch
+// metrics (signups/day around a Show HN post, etc.).
+//
+// This only reports *signups*, not plan changes over time: `users` has no
+// history of past `plan` values, just the current one, so a true
+// free→paid-conversion-over-time series isn't derivable from the schema as
+// it stands — that would need a separate plan-change/event log, not
+// implemented here. See the "Admin-Stats um Zeitreihe erweitern" TODO note.
+func (h *Handler) GrowthStats(w http.ResponseWriter, r *http.Request) {
+	days := 30
+	if q := r.URL.Query().Get("days"); q != "" {
+		if n, err := strconv.Atoi(q); err == nil && n > 0 && n <= 365 {
+			days = n
+		}
+	}
+
+	rows, err := h.db.Query(r.Context(), `
+		SELECT d::date, COUNT(u.id)
+		FROM generate_series(CURRENT_DATE - ($1::int - 1), CURRENT_DATE, interval '1 day') AS d
+		LEFT JOIN users u ON u.created_at::date = d::date
+		GROUP BY d
+		ORDER BY d`, days)
+	if err != nil {
+		httperr.Write(w, http.StatusInternalServerError, "db error")
+		return
+	}
+	defer rows.Close()
+
+	points := []growthPoint{}
+	for rows.Next() {
+		var day time.Time
+		var signups int64
+		if err := rows.Scan(&day, &signups); err != nil {
+			continue
+		}
+		points = append(points, growthPoint{Date: day.Format("2006-01-02"), Signups: signups})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(points)
 }
 
 type adminUser struct {

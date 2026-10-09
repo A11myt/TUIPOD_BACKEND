@@ -80,15 +80,15 @@ func (h *Handler) Checkout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	appURL := os.Getenv("APP_URL")
+	webURL := os.Getenv("WEB_URL")
 	params := &stripe.CheckoutSessionParams{
 		Mode:              stripe.String(string(stripe.CheckoutSessionModeSubscription)),
 		ClientReferenceID: stripe.String(userID),
 		LineItems: []*stripe.CheckoutSessionLineItemParams{
 			{Price: stripe.String(priceID), Quantity: stripe.Int64(1)},
 		},
-		SuccessURL: stripe.String(appURL + "/billing/success"),
-		CancelURL:  stripe.String(appURL + "/billing/cancel"),
+		SuccessURL: stripe.String(webURL + "/app?checkout=success"),
+		CancelURL:  stripe.String(webURL + "/app?checkout=cancel"),
 		Metadata:   map[string]string{"plan": req.Plan},
 	}
 
@@ -122,7 +122,7 @@ func (h *Handler) Portal(w http.ResponseWriter, r *http.Request) {
 
 	params := &stripe.BillingPortalSessionParams{
 		Customer:  stripe.String(*customerID),
-		ReturnURL: stripe.String(os.Getenv("APP_URL") + "/settings"),
+		ReturnURL: stripe.String(os.Getenv("WEB_URL") + "/account"),
 	}
 	sess, err := portalsession.New(params)
 	if err != nil {

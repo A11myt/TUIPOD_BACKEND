@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -12,9 +14,30 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-// init sets JWT_SECRET for tests at package load time.
+// init sets JWT_SECRET for tests at package load time, and points
+// db.RunMigrations at an absolute migrations directory.
+//
+// db.RunMigrations reads the relative path "migrations" by default (or
+// MIGRATIONS_DIR if set) — fine for cmd/server, which always runs from the
+// repo root, but `go test` runs each package's test binary with that
+// package's own source directory as its working directory, not the repo
+// root. Without this, `go test ./internal/<anything>/...` (and therefore
+// `go test ./...`/`make test`) fails every single integration test with
+// "read migrations dir \"migrations\": no such file or directory" the
+// moment it's run from anywhere but TUIPOD-BACKEND/ itself directly — this
+// derives the path from this file's own location instead, so it works
+// regardless of which package's tests are being run or from where `go test`
+// itself was invoked.
 func init() {
 	os.Setenv("JWT_SECRET", "test-secret-for-tuipod-tests")
+	if os.Getenv("MIGRATIONS_DIR") == "" {
+		_, thisFile, _, ok := runtime.Caller(0)
+		if ok {
+			// thisFile: <repo root>/internal/testutil/testutil.go
+			repoRoot := filepath.Dir(filepath.Dir(filepath.Dir(thisFile)))
+			os.Setenv("MIGRATIONS_DIR", filepath.Join(repoRoot, "migrations"))
+		}
+	}
 }
 
 // Pool connects to TEST_DATABASE_URL, runs migrations, and truncates all app

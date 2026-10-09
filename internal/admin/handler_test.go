@@ -39,6 +39,59 @@ func TestAdminStats(t *testing.T) {
 	}
 }
 
+func TestAdminGrowthStats(t *testing.T) {
+	h, pool, adminID := setup(t)
+	testutil.CreateUser(t, pool, "regular@example.com", "pw")
+
+	req := httptest.NewRequest(http.MethodGet, "/?days=5", nil)
+	req = testutil.WithUser(req, adminID)
+	rr := httptest.NewRecorder()
+	h.GrowthStats(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var points []struct {
+		Date    string `json:"date"`
+		Signups int64  `json:"signups"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&points); err != nil {
+		t.Fatalf("could not decode response: %v", err)
+	}
+	if len(points) != 5 {
+		t.Fatalf("expected 5 points for days=5, got %d", len(points))
+	}
+
+	today := time.Now().UTC().Format("2006-01-02")
+	last := points[len(points)-1]
+	if last.Date != today {
+		t.Errorf("expected last point's date to be today (%s), got %s", today, last.Date)
+	}
+	// setup() creates an admin user and this test creates a regular one —
+	// both signed up today, so today's bucket should reflect both.
+	if last.Signups < 2 {
+		t.Errorf("expected at least 2 signups today, got %d", last.Signups)
+	}
+}
+
+func TestAdminGrowthStats_DefaultsTo30Days(t *testing.T) {
+	h, _, adminID := setup(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req = testutil.WithUser(req, adminID)
+	rr := httptest.NewRecorder()
+	h.GrowthStats(rr, req)
+
+	var points []struct {
+		Date    string `json:"date"`
+		Signups int64  `json:"signups"`
+	}
+	json.NewDecoder(rr.Body).Decode(&points)
+	if len(points) != 30 {
+		t.Errorf("expected 30 points by default, got %d", len(points))
+	}
+}
+
 func TestAdminListUsers(t *testing.T) {
 	h, pool, adminID := setup(t)
 	testutil.CreateUser(t, pool, "regular@example.com", "pw")

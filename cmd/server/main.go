@@ -18,6 +18,7 @@ import (
 	"github.com/A11myt/tuipod/internal/admin"
 	"github.com/A11myt/tuipod/internal/auth"
 	"github.com/A11myt/tuipod/internal/billing"
+	"github.com/A11myt/tuipod/internal/bookmark"
 	"github.com/A11myt/tuipod/internal/db"
 	"github.com/A11myt/tuipod/internal/episode"
 	"github.com/A11myt/tuipod/internal/favorite"
@@ -78,11 +79,28 @@ func main() {
 	billingH := billing.NewHandler(pool)
 	pushH := push.NewHandler(pool)
 	favoriteH := favorite.NewHandler(pool)
+	bookmarkH := bookmark.NewHandler(pool)
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
 	r.Use(metrics.Middleware)
+
+	// Caps every request body at 5 MiB — no handler here ever needs more
+	// (the largest legitimate body is an OPML import with thousands of
+	// subscriptions, still well under this), and without it a request of
+	// unbounded size to any POST/PUT route — including unauthenticated ones
+	// like /auth/register — could pressure memory. http.MaxBytesReader
+	// makes the body reader itself return an error past the limit, so a
+	// handler's normal json.NewDecoder(r.Body).Decode(...) call already
+	// fails cleanly instead of needing a per-handler change.
+	const maxBodyBytes = 5 << 20
+	r.Use(func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+			next.ServeHTTP(w, r)
+		})
+	})
 
 	r.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -190,6 +208,10 @@ func main() {
 				r.Post("/me/favorites", favoriteH.Add)
 				r.Delete("/me/favorites/{id}", favoriteH.Remove)
 
+				r.Get("/me/bookmarks", bookmarkH.List)
+				r.Post("/me/bookmarks", bookmarkH.Create)
+				r.Delete("/me/bookmarks/{id}", bookmarkH.Delete)
+
 				r.Get("/subscriptions", subH.List)
 				r.Post("/subscriptions", subH.Subscribe)
 				r.Delete("/subscriptions/{id}", subH.Unsubscribe)
@@ -210,6 +232,7 @@ func main() {
 			r.Group(func(r chi.Router) {
 				r.Use(admin.Middleware(pool))
 				r.Get("/admin/stats", adminH.Stats)
+				r.Get("/admin/stats/growth", adminH.GrowthStats)
 				r.Get("/admin/users", adminH.ListUsers)
 				r.Get("/admin/users/{id}", adminH.GetUser)
 				r.Put("/admin/users/{id}/plan", adminH.SetPlan)

@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -27,20 +28,62 @@ type subRequest struct {
 }
 
 type subResponse struct {
-	ID        string `json:"id"`
-	PodcastID string `json:"podcast_id"`
-	Title     string `json:"title"`
-	ImageURL  string `json:"image_url"`
+	ID          string     `json:"id"`
+	PodcastID   string     `json:"podcast_id"`
+	Title       string     `json:"title"`
+	ImageURL    string     `json:"image_url"`
+	LastFetched *time.Time `json:"last_fetched"`
+	Favorite    bool       `json:"favorite"`
+	FavoriteID  *string    `json:"favorite_id,omitempty"`
+	// ImageEtag/ImageLastModified are the cover image's HTTP validators
+	// (captured server-side during feed refresh, see podcast.fetchImageValidators)
+	// so a client can tell whether its own locally cached copy of the image
+	// is stale without downloading it again.
+	ImageEtag         string `json:"image_etag,omitempty"`
+	ImageLastModified string `json:"image_last_modified,omitempty"`
+	// Per-podcast listening stats for the current user — same shape as the
+	// global GET /me/stats, just grouped by podcast instead of summed across
+	// all of them, so clients (the TUI's subs grid cards) don't need an
+	// extra round trip per podcast to show "how much have I listened to this show".
+	CompletedEpisodes    int64 `json:"completed_episodes"`
+	InProgressEpisodes   int64 `json:"in_progress_episodes"`
+	TotalListenedSeconds int64 `json:"total_listened_seconds"`
+	// TotalEpisodes is the podcast's whole known episode count (not scoped to
+	// this user, unlike the stats above) — lets a client show "12/45 · 33 left".
+	TotalEpisodes int64 `json:"total_episodes"`
 }
 
-// List returns all of the user's subscriptions, newest first.
+// List returns all of the user's subscriptions, newest first. Includes
+// last_fetched (so clients can decide when a feed needs refreshing),
+// favorite/favorite_id (favorites are their own resource — internal/favorite
+// — not a column on subscriptions, so this is a LEFT JOIN; favorite_id is
+// what DELETE /me/favorites/{id} expects, not the podcast or subscription id),
+// and per-podcast listening stats (LEFT JOIN a GROUP BY podcast_id subquery
+// over progress, scoped to this user — COALESCEd to 0 for a podcast with no
+// progress rows yet).
 func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	userID := auth.UserIDFromCtx(r)
 
 	rows, err := h.db.Query(r.Context(), `
-		SELECT s.id, p.id, p.title, COALESCE(p.image_url,'')
+		SELECT s.id, p.id, p.title, COALESCE(p.image_url,''), p.last_fetched, f.id,
+		       COALESCE(stats.completed, 0), COALESCE(stats.in_progress, 0), COALESCE(stats.total_seconds, 0),
+		       COALESCE(ep_counts.total, 0), COALESCE(p.image_etag,''), COALESCE(p.image_last_modified,'')
 		FROM subscriptions s
 		JOIN podcasts p ON p.id = s.podcast_id
+		LEFT JOIN favorites f ON f.podcast_id = p.id AND f.user_id = s.user_id
+		LEFT JOIN (
+			SELECT e.podcast_id,
+			       COUNT(*) FILTER (WHERE pr.completed = true)                          AS completed,
+			       COUNT(*) FILTER (WHERE pr.position_seconds > 0 AND pr.completed = false) AS in_progress,
+			       COALESCE(SUM(pr.position_seconds), 0)                                AS total_seconds
+			FROM progress pr
+			JOIN episodes e ON e.id = pr.episode_id
+			WHERE pr.user_id = $1
+			GROUP BY e.podcast_id
+		) stats ON stats.podcast_id = p.id
+		LEFT JOIN (
+			SELECT podcast_id, COUNT(*) AS total FROM episodes GROUP BY podcast_id
+		) ep_counts ON ep_counts.podcast_id = p.id
 		WHERE s.user_id = $1
 		ORDER BY s.created_at DESC`,
 		userID,
@@ -54,9 +97,13 @@ func (h *Handler) List(w http.ResponseWriter, r *http.Request) {
 	subs := []subResponse{}
 	for rows.Next() {
 		var s subResponse
-		if err := rows.Scan(&s.ID, &s.PodcastID, &s.Title, &s.ImageURL); err != nil {
+		if err := rows.Scan(&s.ID, &s.PodcastID, &s.Title, &s.ImageURL, &s.LastFetched, &s.FavoriteID,
+			&s.CompletedEpisodes, &s.InProgressEpisodes, &s.TotalListenedSeconds, &s.TotalEpisodes,
+			&s.ImageEtag, &s.ImageLastModified,
+		); err != nil {
 			continue
 		}
+		s.Favorite = s.FavoriteID != nil
 		subs = append(subs, s)
 	}
 	if err := rows.Err(); err != nil {

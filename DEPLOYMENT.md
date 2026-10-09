@@ -56,7 +56,7 @@ fly apps create tuipod-api   # or whatever you renamed it to in fly.toml
 fly secrets set \
   DATABASE_URL="postgres://user:pass@ep-xxx-pooler.eu-central-1.aws.neon.tech/tuipod?sslmode=require" \
   JWT_SECRET="$(openssl rand -base64 48)" \
-  APP_URL="https://tuipod-api.fly.dev"
+  WEB_URL="https://tuipod.app"   # your deployed TUIPOD-LANDING URL, not this API
 ```
 
 Optional secrets (billing/push/mail — same as `.env.example`, only set what you're actually using):
@@ -96,7 +96,7 @@ Swagger UI: `https://tuipod-api.fly.dev/docs`
 ```bash
 fly certs add api.yourdomain.com
 # then add the CNAME/A records Fly shows you at your DNS provider
-fly secrets set APP_URL="https://api.yourdomain.com"
+fly secrets set WEB_URL="https://tuipod.yourdomain.com"   # the frontend, not the API
 ```
 
 ### Scaling later
@@ -147,7 +147,7 @@ cd /opt/tuipod
 
 # Configure
 cp .env.example .env
-nano .env          # set JWT_SECRET, APP_URL, and optionally Stripe keys
+nano .env          # set JWT_SECRET, WEB_URL (your deployed TUIPOD-LANDING URL), and optionally Stripe keys
 ```
 
 Start the stack:
@@ -194,7 +194,7 @@ export TUIPOD_API_URL=http://<container-ip>:8080
 | `DATABASE_URL` | ✅ | — | PostgreSQL connection string |
 | `JWT_SECRET` | ✅ | — | Random string ≥ 32 chars for signing JWTs |
 | `PORT` | | `8080` | HTTP port |
-| `APP_URL` | | — | Public base URL (used in reset-password emails) |
+| `WEB_URL` | | — | Public base URL of the **frontend** (TUIPOD-LANDING) — used in reset-password/verify-email emails and Stripe redirect URLs, NOT this API's own URL |
 | `SMTP_HOST` | | — | SMTP server for email (forgot-password, verify-email) |
 | `SMTP_PORT` | | `587` | SMTP port |
 | `SMTP_USER` | | — | SMTP username |
@@ -206,8 +206,8 @@ export TUIPOD_API_URL=http://<container-ip>:8080
 | `STRIPE_PRICE_PRO` | | — | Stripe Price ID for pro plan |
 | `FIREBASE_SERVER_KEY` | | — | FCM key for push notifications (optional) |
 | `METRICS_TOKEN` | | — | Bearer token to protect `/metrics` (optional) |
-| `DB_MAX_CONNS` | | `25` | PostgreSQL connection pool max |
-| `DB_MIN_CONNS` | | `2` | PostgreSQL connection pool min |
+| `DB_MAX_CONNS` | | `4` (or CPU count if higher) | PostgreSQL connection pool max — this is `pgxpool`'s own built-in default, nothing in this codebase sets a different one unless you do. `.env.example` sets `10` for the Docker Compose path, but that file isn't used for the Fly.io deploy above — set this explicitly via `fly secrets set` if you want something other than the pgxpool default there |
+| `DB_MIN_CONNS` | | `0` | PostgreSQL connection pool min (`pgxpool`'s own default) |
 | `REFRESH_INTERVAL_HOURS` | | `6` | RSS background refresh interval |
 
 Generate a secure `JWT_SECRET`:
@@ -243,12 +243,9 @@ api.yourdomain.com {
 systemctl enable --now caddy
 ```
 
-Caddy fetches and renews the certificate automatically.  
-Update `APP_URL=https://api.yourdomain.com` in your `.env` and restart:
-
-```bash
-docker compose restart api
-```
+Caddy fetches and renews the certificate automatically. This only changes how the API itself is
+reached — `WEB_URL` in your `.env` stays pointed at the frontend (TUIPOD-LANDING), not this
+domain; no restart needed unless you're also changing `WEB_URL`.
 
 ---
 
@@ -312,10 +309,15 @@ For automated daily backups, add a cron job on the Proxmox host or inside the LX
 **Cloud mode** (login with account):
 
 ```bash
-TUIPOD_API_URL=https://api.yourdomain.com ./tuipod
+TUIPOD_API_URL=https://api.yourdomain.com TUIPOD_WEB_URL=https://tuipod.yourdomain.com ./tuipod
 # or set permanently:
-echo '{"api_url":"https://api.yourdomain.com"}' > ~/.config/tuipod/config.json
+echo '{"api_url":"https://api.yourdomain.com","web_url":"https://tuipod.yourdomain.com"}' > ~/.config/tuipod/config.json
 ```
+
+`TUIPOD_WEB_URL`/`web_url` is optional but recommended — without it the login screen's "Forgot
+password?" hint stays hidden (see `TUIPOD-TUI/CLAUDE.md`). Same idea applies to the mobile app's
+release builds: pass `--dart-define=WEB_URL=https://tuipod.yourdomain.com` alongside
+`--dart-define=API_BASE_URL=...` (see `TUIPOD-APP/CLAUDE.md`).
 
 **Local mode** (no server needed):
 
